@@ -1,0 +1,1 @@
+"""Aplicação agêntica CLI CineAnalytics"""

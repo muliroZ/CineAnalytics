@@ -1,0 +1,17 @@
+data/*.db
+venv/
+.venv/
+.env*
+!.env.example
+__pycache__/
+*.py[cod]
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+*.log
+.pytest_cache/
+reports/
+.cache/
+.cineanalytics/
