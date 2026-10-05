@@ -49,6 +49,12 @@ REVIEWS = [  # movie_reviews: (id, sk_review, sk_movie, autor, nota, texto)
 ]
 
 
+@pytest.fixture(autouse=True)
+def _isola_configuracao_global(monkeypatch, tmp_path_factory):
+    """Impede que o .env global da máquina de quem roda os testes interfira neles."""
+    monkeypatch.setenv("CINEANALYTICS_CONFIG_DIR", str(tmp_path_factory.mktemp("config_global")))
+
+
 @pytest.fixture(scope="session")
 def db_path(tmp_path_factory) -> Path:
     path = tmp_path_factory.mktemp("data") / "cinerocket_test.db"

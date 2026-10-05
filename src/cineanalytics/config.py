@@ -1,7 +1,17 @@
-"""Configuração lida de variáveis de ambiente e do arquivo .env."""
+"""Configuração lida de variáveis de ambiente e de arquivos .env.
+
+Ordem de prioridade, da maior para a menor:
+1. variáveis de ambiente;
+2. `.env` na pasta atual (configuração do projeto);
+3. `.env` global do usuário (criado pelo instalador):
+   - Linux e macOS: ~/.config/cineanalytics/.env (ou $XDG_CONFIG_HOME/cineanalytics/.env)
+   - Windows: %APPDATA%\\cineanalytics\\.env
+   A pasta pode ser trocada com a variável CINEANALYTICS_CONFIG_DIR.
+"""
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Annotated
 
@@ -11,7 +21,12 @@ from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env", env_file_encoding="utf-8", env_prefix="CINEANALYTICS_", extra="ignore"
+        env_file=".env",
+        env_file_encoding="utf-8",
+        env_prefix="CINEANALYTICS_",
+        extra="ignore",
+        # `OPENROUTER_API_KEY=` vazio conta como ausente, e não como uma chave vazia.
+        env_ignore_empty=True,
     )
 
     openrouter_api_key: SecretStr | None = Field(
@@ -64,6 +79,31 @@ class Settings(BaseSettings):
         if missing:
             raise RuntimeError(
                 f"Configuração ausente: {', '.join(missing)}. "
-                "Copie .env.example para .env e preencha os valores (veja o README)."
+                f"Defina no .env global ({user_env_file()}) ou num .env na pasta atual. "
+                "Use `cineanalytics config` para ver de onde vem cada configuração."
             )
         return self.openrouter_api_key.get_secret_value(), self.models
+
+
+# ------------------------------------------------------------ configuração global
+LOCAL_ENV_FILE = Path(".env")
+
+
+def user_config_dir() -> Path:
+    """Pasta da configuração global do usuário (mesma lógica dos instaladores)."""
+    if custom := os.environ.get("CINEANALYTICS_CONFIG_DIR"):
+        return Path(custom).expanduser()
+    if os.name == "nt":
+        base = os.environ.get("APPDATA") or Path.home() / "AppData" / "Roaming"
+    else:
+        base = os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config"
+    return Path(base) / "cineanalytics"
+
+
+def user_env_file() -> Path:
+    return user_config_dir() / ".env"
+
+
+def load_settings() -> Settings:
+    """Lê o .env global e o local; o local (pasta atual) tem prioridade."""
+    return Settings(_env_file=(user_env_file(), LOCAL_ENV_FILE))

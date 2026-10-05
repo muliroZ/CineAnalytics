@@ -60,7 +60,8 @@ Projeto desenvolvido para a atividade de GenAI do Rocket Lab 2026 (Visagio).
 - **Economia da cota gratuita do OpenRouter:** cache de respostas, schema no prompt, limite de chamadas por pergunta e fallback automático entre modelos.
 - **Relatório HTML** autocontido, com respostas, gráficos, dados e SQL, que funciona offline e pode ser salvo como PDF.
 - **Avaliação automática** contra 14 perguntas de referência, comparando os dados retornados com consultas escritas à mão.
-- **130 testes automatizados**, nenhum deles chamando o LLM.
+- **Instalação global com um comando**, em Linux, macOS e Windows: `cineanalytics` passa a funcionar em qualquer pasta.
+- **142 testes automatizados**, nenhum deles chamando o LLM.
 
 ## Stack
 
@@ -81,29 +82,132 @@ Projeto desenvolvido para a atividade de GenAI do Rocket Lab 2026 (Visagio).
 
 ## Instalação
 
+Há duas formas de instalar:
+
+| | Instalação global (recomendada para uso) | Instalação no projeto (para desenvolvimento) |
+|---|---|---|
+| Como rodar | `cineanalytics ...` em **qualquer pasta** | `uv run cineanalytics ...` na pasta do projeto |
+| Configuração | `.env` global, criado pelo instalador | `.env` na raiz do projeto |
+| Testes | não incluídos | `uv run pytest` |
+| Atualizar | `git pull` e rodar o instalador de novo | `git pull` e `uv sync` |
+
+Os exemplos deste README usam o comando direto (`cineanalytics ...`). Na instalação no projeto, acrescente `uv run` na frente.
+
 ### Pré-requisitos
 
-- **Python 3.11 ou superior.** Confira com `python --version`.
-- **uv** (recomendado). Instruções em [docs.astral.sh/uv](https://docs.astral.sh/uv/getting-started/installation/). Também é possível usar pip, como mostrado abaixo.
+- **Git**, para clonar o repositório.
 - **Uma chave do OpenRouter.** Crie uma conta gratuita e gere a chave em [openrouter.ai/settings/keys](https://openrouter.ai/settings/keys).
 - **O arquivo `cinerocket.db`**, disponível na pasta compartilhada da atividade.
+- **[uv](https://docs.astral.sh/uv/)** e **Python 3.11+**. Na instalação global, não é preciso instalar nenhum dos dois antes: o instalador oferece instalar o uv, e o uv baixa uma versão compatível do Python se a máquina não tiver uma.
 
-### Passo 1: clonar o repositório
+### Instalação global
+
+**1. Clone o repositório e coloque o banco em `data/`:**
 
 ```bash
-git clone <url-do-repositorio>
+git clone https://github.com/muliroZ/CineAnalytics.git
 cd CineAnalytics
 ```
 
-### Passo 2: instalar as dependências
+```text
+CineAnalytics/
+└── data/
+    └── cinerocket.db
+```
 
-Com uv:
+O banco pode ficar em outra pasta; nesse caso, informe o caminho ao instalador com `--db` (Linux e macOS) ou `-DbPath` (Windows).
+
+**2. Rode o instalador:**
+
+Linux e macOS:
 
 ```bash
+bash install.sh
+```
+
+Windows (PowerShell):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install.ps1
+```
+
+O `-ExecutionPolicy Bypass` vale só para essa execução. Ele é necessário porque, por padrão, o Windows bloqueia scripts PowerShell que não foram assinados.
+
+**3. Informe a chave e os modelos** quando o instalador pedir. Se já existir um `.env` na pasta do projeto com esses valores, eles são reaproveitados e o instalador não pergunta nada. A chave é digitada sem aparecer na tela.
+
+**4. Abra um novo terminal** e teste em qualquer pasta:
+
+```bash
+cineanalytics config
+cineanalytics ask "Quais são os 5 filmes mais populares?"
+```
+
+#### O que o instalador faz
+
+1. **Verifica o uv** e, se não estiver instalado, oferece instalá-lo pelo instalador oficial (astral.sh).
+2. **Instala o pacote** com `uv tool install`, num ambiente virtual isolado e exclusivo do CineAnalytics. Nada é instalado no Python do sistema.
+3. **Ajusta o PATH**, acrescentando a pasta de executáveis do uv (`~/.local/bin` ou `%USERPROFILE%\.local\bin`) ao arquivo de inicialização do shell ou às variáveis do usuário no Windows.
+4. **Cria o `.env` global** com a chave, os modelos e **caminhos absolutos** para o banco, o cache, o histórico e os relatórios. No Linux e no macOS, o arquivo recebe permissão `600` (só o dono lê), porque guarda a chave. Se o `.env` global já existir, ele é mantido.
+5. **Confere a instalação** executando o comando a partir da pasta do usuário, fora do projeto, e abrindo o banco.
+
+#### Opções dos instaladores
+
+| `install.sh` | `install.ps1` | Efeito |
+|---|---|---|
+| `--db CAMINHO` | `-DbPath CAMINHO` | Caminho do `cinerocket.db`. Padrão: `data/cinerocket.db` dentro do projeto. Numa reinstalação, atualiza o caminho no `.env` global. |
+| `--yes`, `-y` | `-Yes`, `-y` | Não faz perguntas: instala o uv se necessário e deixa chave e modelos em branco se não houver `.env` no projeto. |
+| `--uninstall` | `-Uninstall` | Remove o comando. A configuração, o cache e o histórico são mantidos. |
+| `--uninstall --purge` | `-Uninstall -Purge` | Remove o comando e apaga a configuração, o cache, o histórico e os relatórios (pede confirmação, a menos que `--yes` seja usado). |
+| `--help` | `Get-Help .\install.ps1 -Detailed` | Mostra a ajuda. |
+
+#### Atualizar e desinstalar
+
+```bash
+# Atualizar para a versão mais recente (a configuração é mantida)
+git pull
+bash install.sh                                       # Windows: .\install.ps1
+
+# Desinstalar
+bash install.sh --uninstall                           # Windows: .\install.ps1 -Uninstall
+bash install.sh --uninstall --purge                   # Windows: .\install.ps1 -Uninstall -Purge
+```
+
+<details>
+<summary><strong>Instalação global manual, sem o script</strong></summary>
+
+```bash
+uv tool install --force .                 # instala o comando
+uv tool update-shell                      # coloca a pasta do uv no PATH
+cineanalytics config --caminho            # mostra onde criar o .env global
+```
+
+Crie o `.env` global nesse caminho com `OPENROUTER_API_KEY`, `CINEANALYTICS_MODELS` e, de preferência, caminhos absolutos em `CINEANALYTICS_DB_PATH`, `CINEANALYTICS_STATE_DIR` e `CINEANALYTICS_REPORTS_DIR`.
+</details>
+
+### Instalação no projeto
+
+Use esta forma para desenvolver e rodar os testes. É preciso ter o [uv](https://docs.astral.sh/uv/getting-started/installation/) instalado.
+
+```bash
+git clone https://github.com/muliroZ/CineAnalytics.git
+cd CineAnalytics
 uv sync
 ```
 
-O uv cria o ambiente virtual em `.venv/`, instala as dependências (incluindo o pytest) e registra o comando `cineanalytics`. Nos exemplos deste README, os comandos aparecem como `uv run cineanalytics ...`.
+O `uv sync` cria o ambiente virtual em `.venv/`, instala as dependências (incluindo o pytest) e registra o comando `cineanalytics` dentro desse ambiente. Depois:
+
+1. Coloque o `cinerocket.db` em `data/`.
+2. Crie o `.env` do projeto e preencha a chave e os modelos:
+
+   ```bash
+   cp .env.example .env           # Windows: copy .env.example .env
+   ```
+
+3. Verifique a instalação (não usa o LLM):
+
+   ```bash
+   uv run cineanalytics schema
+   ```
 
 <details>
 <summary><strong>Alternativa sem uv (pip + venv)</strong></summary>
@@ -121,48 +225,40 @@ source .venv/bin/activate
 pip install -e . pytest
 ```
 
-Com o ambiente ativado, use apenas `cineanalytics ...` no lugar de `uv run cineanalytics ...`.
+Com o ambiente ativado, use `cineanalytics ...` diretamente.
 </details>
 
-### Passo 3: colocar o banco de dados
-
-Copie o `cinerocket.db` para a pasta `data/`. Crie a pasta se ela não existir:
-
-```text
-CineAnalytics/
-└── data/
-    └── cinerocket.db
-```
-
 O banco não é versionado (está no `.gitignore`). Ele é aberto em modo somente leitura e nunca é alterado pela aplicação.
-
-### Passo 4: verificar a instalação
-
-```bash
-uv run cineanalytics schema
-```
-
-Esse comando não usa o LLM nem a chave do OpenRouter. Se ele listar as views e os gêneros, o banco foi encontrado e a instalação está correta.
 
 ---
 
 ## Configuração
 
-### Criar o `.env`
+### Onde fica a configuração
+
+A aplicação combina três fontes. Quando a mesma variável aparece em mais de uma, vale a de maior prioridade:
+
+| Prioridade | Fonte | Uso típico |
+|---|---|---|
+| 1 (maior) | Variáveis de ambiente | Ajustes pontuais: `CINEANALYTICS_MODELS=x/y:free cineanalytics ask "..."` |
+| 2 | `.env` na **pasta atual** | Instalação no projeto, ou configuração específica de uma pasta |
+| 3 (menor) | `.env` **global** | Instalação global; vale em qualquer pasta |
+
+O `.env` global fica em:
+
+| Sistema | Caminho |
+|---|---|
+| Linux e macOS | `~/.config/cineanalytics/.env` (ou `$XDG_CONFIG_HOME/cineanalytics/.env`) |
+| Windows | `%APPDATA%\cineanalytics\.env` |
+
+A pasta pode ser trocada com a variável de ambiente `CINEANALYTICS_CONFIG_DIR`.
+
+Para ver a configuração em uso e de onde ela vem, rode `cineanalytics config` (detalhes na [referência de comandos](#config)). Para abrir o `.env` global num editor:
 
 ```bash
-cp .env.example .env           # Linux e macOS
-copy .env.example .env         # Windows
+nano "$(cineanalytics config --caminho)"        # Linux e macOS
+notepad (cineanalytics config --caminho)        # Windows (PowerShell)
 ```
-
-Abra o `.env` e preencha as duas variáveis obrigatórias:
-
-```bash
-OPENROUTER_API_KEY=sk-or-v1-...
-CINEANALYTICS_MODELS=fornecedor/modelo-a:free,fornecedor/modelo-b:free
-```
-
-O `.env` está no `.gitignore` e nunca deve ser versionado, porque contém a sua chave.
 
 ### Escolher os modelos
 
@@ -190,10 +286,11 @@ Algumas recomendações:
 | `CINEANALYTICS_STATE_DIR` | `.cineanalytics` | caminho | Pasta do cache, do histórico de perguntas e dos resultados do eval. |
 | `CINEANALYTICS_CACHE_ENABLED` | `true` | `true` ou `false` | Liga ou desliga o cache de respostas. |
 | `CINEANALYTICS_REPORTS_DIR` | `reports` | caminho | Pasta onde os relatórios HTML são salvos. |
+| `CINEANALYTICS_CONFIG_DIR` | ver acima | caminho | Pasta do `.env` global. Só funciona como variável de ambiente, não dentro de um `.env`. |
 
-As variáveis podem ser definidas no `.env` ou diretamente no ambiente, que tem prioridade sobre o arquivo.
+Uma variável vazia (`OPENROUTER_API_KEY=`) conta como não definida.
 
-Os caminhos relativos (`data/`, `.cineanalytics/`, `reports/` e o próprio `.env`) são resolvidos a partir da **pasta onde o comando é executado**. Rode sempre a partir da raiz do projeto, ou use caminhos absolutos.
+Caminhos relativos são resolvidos a partir da **pasta onde o comando é executado**. Por isso, o instalador grava caminhos absolutos no `.env` global, e na instalação no projeto os comandos devem ser executados a partir da raiz do repositório.
 
 ---
 
@@ -201,13 +298,13 @@ Os caminhos relativos (`data/`, `.cineanalytics/`, `reports/` e o próprio `.env
 
 ```bash
 # Uma pergunta
-uv run cineanalytics ask "Quais são os 5 filmes mais populares?"
+cineanalytics ask "Quais são os 5 filmes mais populares?"
 
 # Uma conversa com memória
-uv run cineanalytics chat
+cineanalytics chat
 
 # Relatório HTML das perguntas feitas, aberto no navegador
-uv run cineanalytics report --abrir
+cineanalytics report --abrir
 ```
 
 Exemplos de perguntas que o agente responde:
@@ -237,6 +334,7 @@ cineanalytics [COMANDO] [OPÇÕES]
 | [`schema`](#schema) | Mostra os dados disponíveis para o agente | Não |
 | [`eval`](#eval) | Avalia o agente nas perguntas de referência | Sim |
 | [`report`](#report) | Gera o relatório HTML | Não |
+| [`config`](#config) | Mostra a configuração em uso e de onde ela vem | Não |
 | [`cache info`](#cache) | Mostra o tamanho do cache | Não |
 | [`cache clear`](#cache) | Apaga o cache | Não |
 
@@ -265,10 +363,10 @@ Abaixo da resposta aparece uma linha com o modelo que respondeu, o número de re
 Exemplos:
 
 ```bash
-uv run cineanalytics ask "Qual produtora tem o maior lucro total?"
-uv run cineanalytics ask "Quantos filmes há por gênero?" --dados --linhas 25
-uv run cineanalytics ask "Top 10 filmes por receita" --sem-sql
-uv run cineanalytics ask "Diretores com maior nota média, com pelo menos 5 filmes" --sem-cache
+cineanalytics ask "Qual produtora tem o maior lucro total?"
+cineanalytics ask "Quantos filmes há por gênero?" --dados --linhas 25
+cineanalytics ask "Top 10 filmes por receita" --sem-sql
+cineanalytics ask "Diretores com maior nota média, com pelo menos 5 filmes" --sem-cache
 ```
 
 Código de saída: `0` quando há resposta, `1` quando não foi possível responder (configuração ausente, banco não encontrado, limite de requisições, erro do provedor).
@@ -320,8 +418,8 @@ cineanalytics schema [--prompt]
 | `--prompt` | desligado | Mostra o prompt completo enviado ao modelo (instruções, schema, gêneros e regras de negócio) e uma estimativa do tamanho em tokens. Útil para depurar o comportamento do agente. |
 
 ```bash
-uv run cineanalytics schema
-uv run cineanalytics schema --prompt
+cineanalytics schema
+cineanalytics schema --prompt
 ```
 
 ### `eval`
@@ -335,16 +433,16 @@ cineanalytics eval [--id ID ...] [--arquivo CAMINHO] [--sim] [--sem-cache]
 | Flag | Padrão | Descrição |
 |---|---|---|
 | `--id ID` | todas | Roda apenas a pergunta com esse ID. Repita a flag para várias: `--id fin_01 --id pop_02`. Um ID inexistente gera erro. |
-| `--arquivo CAMINHO` | `evals/questions.yaml` | Arquivo YAML com as perguntas. Permite manter conjuntos de avaliação diferentes. |
+| `--arquivo CAMINHO` | `evals/questions.yaml` | Arquivo YAML com as perguntas. Permite manter conjuntos de avaliação diferentes. Se a pasta atual não tiver `evals/questions.yaml`, é usada a cópia que acompanha o pacote instalado, então o eval funciona em qualquer pasta. |
 | `--sim`, `-y` | desligado | Não pede confirmação antes de gastar requisições. |
 | `--sem-cache` | desligado | Ignora o cache e faz todas as perguntas ao modelo de novo, sem gravar as respostas. Use para medir um modelo novo ou uma versão nova do prompt. |
 
 Antes de começar, o comando conta quantas perguntas já estão em cache, mostra uma estimativa de requisições e pede confirmação. Durante a execução, cada resultado aparece assim que fica pronto. No final, são exibidas uma tabela com cada pergunta (correta ou incorreta, com o motivo) e a acurácia por categoria.
 
 ```bash
-uv run cineanalytics eval --id fin_01 --id fin_02 --id fin_03
-uv run cineanalytics eval -y
-uv run cineanalytics eval --sem-cache -y
+cineanalytics eval --id fin_01 --id fin_02 --id fin_03
+cineanalytics eval -y
+cineanalytics eval --sem-cache -y
 ```
 
 O resultado é salvo em `.cineanalytics/evals/eval-AAAAMMDD-HHMMSS.json` e entra no próximo relatório.
@@ -364,14 +462,14 @@ cineanalytics report [--ultimas N] [--desde AAAA-MM-DD] [--avaliacao | --sem-ava
 | `--ultimas N` | todas | Inclui apenas as N perguntas mais recentes. |
 | `--desde AAAA-MM-DD` | sem filtro | Inclui apenas perguntas feitas a partir dessa data. Pode ser combinada com `--ultimas`, que é aplicada depois. |
 | `--avaliacao` / `--sem-avaliacao` | `--avaliacao` | Inclui ou omite a seção com o resultado do eval mais recente. |
-| `--saida CAMINHO` | `reports/relatorio-AAAAMMDD-HHMMSS.html` | Arquivo de saída. As pastas intermediárias são criadas automaticamente. |
+| `--saida CAMINHO` | `relatorio-AAAAMMDD-HHMMSS.html` na pasta de relatórios | Arquivo de saída. As pastas intermediárias são criadas automaticamente. |
 | `--abrir` | desligado | Abre o relatório no navegador padrão depois de gerado. |
 
 ```bash
-uv run cineanalytics report --abrir
-uv run cineanalytics report --ultimas 10
-uv run cineanalytics report --desde 2026-10-04 --sem-avaliacao
-uv run cineanalytics report --saida docs/relatorio-exemplo.html
+cineanalytics report --abrir
+cineanalytics report --ultimas 10
+cineanalytics report --desde 2026-10-04 --sem-avaliacao
+cineanalytics report --saida docs/relatorio-exemplo.html
 ```
 
 O relatório contém:
@@ -384,6 +482,37 @@ O relatório contém:
 O arquivo é autocontido: os gráficos são SVG gerados em Python e não há fontes nem scripts externos, então ele abre sem internet. Tem tema claro e escuro (segue a configuração do sistema) e se adapta a telas de celular. Para gerar um PDF, abra o HTML no navegador e use Imprimir → Salvar como PDF; as seções recolhidas se expandem automaticamente na impressão.
 
 Se não houver perguntas nem resultado de eval, o comando avisa e encerra com código `1`.
+
+### `config`
+
+Mostra quais arquivos de configuração existem, os valores em uso (com a chave mascarada) e se o banco e as perguntas do eval foram encontrados. Não usa o LLM. É o primeiro comando a rodar quando algo não funciona como esperado.
+
+```text
+cineanalytics config [--caminho]
+```
+
+| Flag | Padrão | Descrição |
+|---|---|---|
+| `--caminho` | desligado | Imprime apenas o caminho do `.env` global, sem formatação. Útil em scripts, como `nano "$(cineanalytics config --caminho)"`. |
+
+Exemplo de saída:
+
+```text
+Arquivos de configuração
+ Global               /home/ana/.config/cineanalytics/.env (encontrado)
+ Local (pasta atual)  /home/ana/Documentos/.env (não existe ainda)
+
+Valores em uso
+ Chave do OpenRouter         sk-or-v1…a3f9
+ Modelos                     fornecedor/modelo-a:free, fornecedor/modelo-b:free
+ Banco                       /home/ana/CineAnalytics/data/cinerocket.db (encontrado)
+ Estado (cache e histórico)  /home/ana/.local/share/cineanalytics/state (encontrado)
+ Relatórios                  /home/ana/.local/share/cineanalytics/reports (não existe ainda)
+ Cache                       ligado
+ Limites                     6 requisições por pergunta, 50 linhas, 10 s por consulta
+ Memória do chat             5 perguntas
+ Perguntas do eval           /home/ana/.local/share/uv/tools/cineanalytics/.../questions.yaml
+```
 
 ### `cache`
 
@@ -403,14 +532,22 @@ Normalmente não é preciso limpar o cache manualmente: ele é invalidado sozinh
 
 ## Arquivos gerados
 
-| Caminho | Conteúdo | Criado por |
+| Arquivo | Conteúdo | Criado por |
 |---|---|---|
-| `.cineanalytics/cache/*.json` | Uma resposta completa por arquivo (pergunta, resposta, consultas, linhas, tokens) | `ask`, `chat`, `eval` |
-| `.cineanalytics/runs.jsonl` | Histórico de todas as perguntas, uma por linha. É a fonte do relatório. | `ask`, `chat` |
-| `.cineanalytics/evals/eval-*.json` | Resultado de cada execução do eval | `eval` |
-| `reports/relatorio-*.html` | Relatórios HTML | `report` |
+| `<estado>/cache/*.json` | Uma resposta completa por arquivo (pergunta, resposta, consultas, linhas, tokens) | `ask`, `chat`, `eval` |
+| `<estado>/runs.jsonl` | Histórico de todas as perguntas, uma por linha. É a fonte do relatório. | `ask`, `chat` |
+| `<estado>/evals/eval-*.json` | Resultado de cada execução do eval | `eval` |
+| `<relatórios>/relatorio-*.html` | Relatórios HTML | `report` |
 
-Todos estão no `.gitignore`. Para versionar um relatório de exemplo, gere-o fora dessas pastas, por exemplo com `--saida docs/relatorio-exemplo.html`.
+As pastas `<estado>` e `<relatórios>` vêm de `CINEANALYTICS_STATE_DIR` e `CINEANALYTICS_REPORTS_DIR`:
+
+| Instalação | `<estado>` | `<relatórios>` |
+|---|---|---|
+| Global, Linux e macOS | `~/.local/share/cineanalytics/state` | `~/.local/share/cineanalytics/reports` |
+| Global, Windows | `%LOCALAPPDATA%\cineanalytics\state` | `%LOCALAPPDATA%\cineanalytics\reports` |
+| No projeto | `.cineanalytics/` | `reports/` |
+
+Na instalação global, o histórico é um só, não importa em que pasta o comando rode; assim, o `report` sempre enxerga todas as perguntas. Na instalação no projeto, as duas pastas estão no `.gitignore`. Para versionar um relatório de exemplo, gere-o fora dessas pastas, por exemplo com `--saida docs/relatorio-exemplo.html`.
 
 ---
 
@@ -681,7 +818,7 @@ Detalhes adicionais:
 
 | Modelo | Acurácia | Observações |
 |---|---|---|
-| (preencher) | (x/14) | |
+| nvidia/nemotron-3.5-lightning:free | (10/14) | O eval _cast_03_ acionou um erro interno de timeout de requisição (>10s). Os testes de eval que falharam (sem erro interno) foram: _pop_03_, _cast_02_ e _usr_02_ |
 
 ---
 
@@ -693,21 +830,23 @@ uv run pytest -q         # resumido
 uv run pytest tests/test_guardrails.py -v
 ```
 
-São 130 testes, e **nenhum chama o OpenRouter**. Eles usam:
+São 142 testes, e **nenhum chama o OpenRouter**. Eles usam:
 
+- **Isolamento da configuração global:** os testes apontam `CINEANALYTICS_CONFIG_DIR` para uma pasta temporária, então um `.env` global na sua máquina não interfere neles.
 - **Um banco SQLite sintético** (`tests/conftest.py`), montado com o DDL real da camada Gold e com dados que reproduzem os problemas encontrados no diagnóstico: nomes inválidos, orçamento de US$ 1, filmes planejados para 2029, notas zero sem votos.
 - **Um modelo falso roteirizado** (`tests/helpers.py`), baseado no `FunctionModel` do Pydantic-AI, que devolve SQLs e respostas predefinidos.
 
 | Arquivo | O que cobre |
 |---|---|
 | `test_guardrails.py` | Consultas aceitas e recusadas (escrita, múltiplos statements, tabelas brutas, PRAGMA, ATTACH, funções de tabela) |
-| `test_db.py` | Modo somente leitura, authorizer, timeout, truncamento, uso a partir de threads, regras das views, documentação das colunas |
+| `test_database.py` | Modo somente leitura, authorizer, timeout, truncamento, uso a partir de threads, regras das views, documentação das colunas |
 | `test_eval_references.py` | SQLs de referência sobre as tabelas brutas comparados com consultas equivalentes sobre as views |
 | `test_agent.py` | Fluxo completo, correção de SQL após erro, limite de requisições, rate limit, memória e corte do histórico |
 | `test_storage.py` | Normalização e chave do cache, invalidação, uso do cache com e sem contexto, histórico |
 | `test_evaluation.py` | Regras de comparação e o eval de ponta a ponta |
 | `test_report.py` | Conteúdo do relatório, escape de HTML vindo do LLM, gráficos, filtros do comando |
 | `test_cli.py` | Todos os comandos, mensagens de erro e comandos internos do chat |
+| `test_config.py` | Pasta do `.env` global por sistema, prioridade entre ambiente, `.env` local e global, valores vazios, comando `config` e uso fora do repositório |
 
 ---
 
@@ -719,11 +858,11 @@ O agente pode ser usado num script ou notebook, sem a CLI:
 
 ```python
 from cineanalytics.agent import CineAgent, build_model
-from cineanalytics.config import Settings
+from cineanalytics.config import load_settings
 from cineanalytics.db import Database
 from cineanalytics.storage import ResponseCache
 
-settings = Settings()
+settings = load_settings()          # .env global + .env da pasta atual
 api_key, models = settings.require_llm()
 
 with Database(settings.db_path) as db:
@@ -746,7 +885,7 @@ Acrescente uma entrada em `evals/questions.yaml` seguindo o formato da seção [
 
 ```bash
 uv run pytest tests/test_eval_references.py
-uv run cineanalytics eval --id nova_pergunta
+cineanalytics eval --id nova_pergunta
 ```
 
 ### Mudar uma regra de negócio
@@ -766,9 +905,13 @@ Nos dois casos, o cache é invalidado automaticamente, porque o prompt muda.
 
 | Sintoma | Causa provável | Solução |
 |---|---|---|
-| `Banco não encontrado em 'data/cinerocket.db'` | O arquivo não está em `data/`, ou o comando foi executado de outra pasta | Coloque o banco em `data/` e rode a partir da raiz do projeto, ou defina `CINEANALYTICS_DB_PATH` com um caminho absoluto |
-| `Configuração ausente: OPENROUTER_API_KEY, CINEANALYTICS_MODELS` | `.env` inexistente, incompleto ou fora da pasta atual | Crie o `.env` a partir do `.env.example` na raiz do projeto |
-| `cineanalytics: command not found` | Ambiente virtual não ativado | Use `uv run cineanalytics ...` ou ative o `.venv` |
+| `Banco não encontrado em ...` | O caminho em `CINEANALYTICS_DB_PATH` não aponta para o arquivo | Rode `cineanalytics config` para ver o caminho em uso. Corrija-o no `.env` ou reinstale com `--db` / `-DbPath` |
+| `Configuração ausente: OPENROUTER_API_KEY, CINEANALYTICS_MODELS` | Nenhum `.env` com esses valores (ou valores vazios) | Rode `cineanalytics config` para ver quais arquivos foram lidos e preencha o `.env` global ou o do projeto |
+| `cineanalytics: command not found` (ou "não é reconhecido" no Windows) logo após a instalação global | O terminal foi aberto antes de o PATH ser atualizado | Abra um novo terminal. Se persistir, rode `uv tool update-shell` e abra outro |
+| `cineanalytics: command not found` na instalação no projeto | Ambiente virtual não ativado | Use `uv run cineanalytics ...` ou ative o `.venv` |
+| Windows: "a execução de scripts foi desabilitada neste sistema" | Política de execução do PowerShell | Rode `powershell -ExecutionPolicy Bypass -File .\install.ps1` |
+| `bash: ./install.sh: Permission denied` | O arquivo perdeu a permissão de execução | Rode `bash install.sh` |
+| O comando usa uma configuração inesperada | Um `.env` na pasta atual tem prioridade sobre o global | Rode `cineanalytics config` para ver de onde vem cada valor |
 | `Limite de requisições do OpenRouter atingido` | Cota diária (50) ou limite por minuto esgotado | Aguarde, informe mais modelos em `CINEANALYTICS_MODELS` ou use perguntas já em cache |
 | `A chave do OpenRouter foi recusada` | Chave errada, revogada ou com espaços | Gere uma nova chave e confira o `.env` |
 | `Falha ao chamar o modelo` mencionando *tool use* ou *endpoint* | O modelo não suporta tool calling, ou saiu do ar | Escolha outro modelo pelo link da seção [Configuração](#escolher-os-modelos) |
@@ -796,7 +939,10 @@ Para entender por que o agente respondeu algo, rode a pergunta com `--dados` par
 
 ```text
 CineAnalytics/
-├── .env.example                    # modelo de configuração
+├── .env.example                    # modelo de configuração (instalação no projeto)
+├── .gitattributes                  # finais de linha dos instaladores
+├── install.sh                      # instalador global (Linux e macOS)
+├── install.ps1                     # instalador global (Windows)
 ├── .gitignore
 ├── pyproject.toml                  # dependências e comando cineanalytics
 ├── README.md
@@ -826,5 +972,5 @@ CineAnalytics/
     ├── conftest.py                 # banco sintético
     ├── helpers.py                  # modelo falso
     ├── fixtures/schema.sql         # DDL da camada Gold
-    └── test_*.py                   # 130 testes
+    └── test_*.py                   # 142 testes
 ```

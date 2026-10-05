@@ -20,12 +20,13 @@ import typer
 from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Confirm, Prompt
+from rich.table import Table
 
 from . import render
 from .agent import CineAgent, build_instructions, build_model
-from .config import Settings
+from .config import LOCAL_ENV_FILE, Settings, load_settings, user_env_file
 from .db import Database
-from .evaluation import evaluate, load_questions
+from .evaluation import default_questions_file, evaluate, load_questions
 from .report import build_report, latest_eval
 from .storage import ResponseCache, RunLog
 
@@ -40,7 +41,6 @@ cache_app = typer.Typer(help="Gerencia o cache de respostas.", no_args_is_help=T
 app.add_typer(cache_app, name="cache")
 
 console = Console()
-DEFAULT_EVAL_FILE = Path("evals/questions.yaml")
 
 
 # --------------------------------------------------------------------- helpers
@@ -53,7 +53,10 @@ def _open_db(settings: Settings) -> Database:
     try:
         return Database(settings.db_path, max_rows=settings.max_rows, timeout_s=settings.query_timeout_s)
     except FileNotFoundError as e:
-        _fail(str(e))
+        _fail(
+            f"{e}\n\nO caminho vem de CINEANALYTICS_DB_PATH. Ajuste-o no .env global "
+            f"({user_env_file()}) ou rode `cineanalytics config` para ver a configuração atual."
+        )
 
 
 def _make_agent(settings: Settings, db: Database, *, use_cache: bool = True) -> CineAgent:
@@ -86,7 +89,7 @@ def ask(
     sem_cache: Annotated[bool, typer.Option("--sem-cache", help="Ignora respostas em cache.")] = False,
 ) -> None:
     """Faz uma pergunta e mostra a resposta."""
-    settings = Settings()
+    settings = load_settings()
     with _open_db(settings) as db:
         agent = _make_agent(settings, db, use_cache=not sem_cache)
         run = _ask_with_spinner(agent, pergunta, remember=False)
@@ -109,7 +112,7 @@ def chat(
     sem_cache: Annotated[bool, typer.Option("--sem-cache", help="Ignora respostas em cache.")] = False,
 ) -> None:
     """Conversa interativa com memória das perguntas anteriores."""
-    settings = Settings()
+    settings = load_settings()
     show_sql, show_data = True, False
     with _open_db(settings) as db:
         agent = _make_agent(settings, db, use_cache=not sem_cache)
@@ -159,7 +162,7 @@ def schema(
     prompt: Annotated[bool, typer.Option("--prompt", help="Mostra o prompt completo enviado ao modelo.")] = False,
 ) -> None:
     """Mostra as views disponíveis para o agente (não usa o LLM)."""
-    settings = Settings()
+    settings = load_settings()
     with _open_db(settings) as db:
         if prompt:
             text = build_instructions(db)
@@ -172,12 +175,18 @@ def schema(
 @app.command("eval")
 def eval_(
     ids: Annotated[list[str] | None, typer.Option("--id", help="Roda só estes IDs (repita a opção).")] = None,
-    arquivo: Annotated[Path, typer.Option(help="Arquivo YAML com as perguntas.")] = DEFAULT_EVAL_FILE,
+    arquivo: Annotated[
+        Path | None,
+        typer.Option(help="Arquivo YAML com as perguntas. Padrão: evals/questions.yaml (ou a cópia instalada)."),
+    ] = None,
     sim: Annotated[bool, typer.Option("--sim", "-y", help="Não pede confirmação.")] = False,
     sem_cache: Annotated[bool, typer.Option("--sem-cache", help="Força novas chamadas ao LLM.")] = False,
 ) -> None:
     """Avalia o agente contra as perguntas de referência."""
-    settings = Settings()
+    settings = load_settings()
+    arquivo = arquivo or default_questions_file()
+    if arquivo is None:
+        _fail("Arquivo de perguntas não encontrado. Informe um com --arquivo.")
     try:
         questions = load_questions(arquivo, ids)
     except (OSError, ValueError) as e:
@@ -240,7 +249,7 @@ def report(
     abrir: Annotated[bool, typer.Option("--abrir", help="Abre o relatório no navegador.")] = False,
 ) -> None:
     """Gera um relatório HTML com as perguntas feitas e o último eval (não usa o LLM)."""
-    settings = Settings()
+    settings = load_settings()
     runs = RunLog(settings.runs_path).load()
     if desde is not None:
         runs = [r for r in runs if r.criado_em >= desde]
@@ -264,10 +273,60 @@ def report(
         webbrowser.open(out.resolve().as_uri())
 
 
+def _mask(secret: str) -> str:
+    return secret[:8] + "…" + secret[-4:] if len(secret) > 16 else "…" * 3
+
+
+def _path_status(path: Path, *, must_exist: bool = True) -> str:
+    resolved = path.expanduser().resolve()
+    if path.exists():
+        return f"{resolved} [green](encontrado)[/]"
+    return f"{resolved} [{'red' if must_exist else 'dim'}](não existe{'' if must_exist else ' ainda'})[/]"
+
+
+@app.command()
+def config(
+    caminho: Annotated[
+        bool, typer.Option("--caminho", help="Só imprime o caminho do .env global (útil em scripts).")
+    ] = False,
+) -> None:
+    """Mostra a configuração em uso e de onde ela vem (não usa o LLM)."""
+    global_env = user_env_file()
+    if caminho:
+        print(global_env)
+        return
+
+    settings = load_settings()
+    files = Table(title="Arquivos de configuração", title_justify="left", show_header=False, box=None)
+    files.add_column(style="bold")
+    files.add_column()
+    files.add_row("Global", _path_status(global_env))
+    files.add_row("Local (pasta atual)", _path_status(LOCAL_ENV_FILE, must_exist=False))
+    console.print(files)
+    console.print("[dim]Variáveis de ambiente têm prioridade sobre o .env local, que tem prioridade sobre o global.[/]\n")
+
+    key = settings.openrouter_api_key.get_secret_value() if settings.openrouter_api_key else None
+    values = Table(title="Valores em uso", title_justify="left", show_header=False, box=None)
+    values.add_column(style="bold")
+    values.add_column()
+    values.add_row("Chave do OpenRouter", _mask(key) if key else "[red]não definida[/]")
+    values.add_row("Modelos", ", ".join(settings.models) if settings.models else "[red]não definidos[/]")
+    values.add_row("Banco", _path_status(settings.db_path))
+    values.add_row("Estado (cache e histórico)", _path_status(settings.state_dir, must_exist=False))
+    values.add_row("Relatórios", _path_status(settings.reports_dir, must_exist=False))
+    values.add_row("Cache", "ligado" if settings.cache_enabled else "desligado")
+    values.add_row("Limites", f"{settings.request_limit} requisições por pergunta, "
+                   f"{settings.max_rows} linhas, {settings.query_timeout_s:g} s por consulta")
+    values.add_row("Memória do chat", f"{settings.history_turns} perguntas")
+    questions = default_questions_file()
+    values.add_row("Perguntas do eval", str(questions.resolve()) if questions else "[red]não encontrado[/]")
+    console.print(values)
+
+
 @cache_app.command("info")
 def cache_info() -> None:
     """Mostra quantas respostas estão em cache."""
-    cache = ResponseCache(Settings().cache_dir)
+    cache = ResponseCache(load_settings().cache_dir)
     files = cache.entries()
     size_kb = sum(f.stat().st_size for f in files) / 1024
     console.print(f"{len(files)} respostas em cache ({size_kb:.0f} KB) em {cache.directory}")
@@ -276,7 +335,7 @@ def cache_info() -> None:
 @cache_app.command("clear")
 def cache_clear() -> None:
     """Apaga todas as respostas em cache."""
-    removed = ResponseCache(Settings().cache_dir).clear()
+    removed = ResponseCache(load_settings().cache_dir).clear()
     console.print(f"{removed} respostas removidas do cache.")
 
 

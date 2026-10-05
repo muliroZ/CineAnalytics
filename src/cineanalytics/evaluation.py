@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import itertools
 import math
+from importlib import resources
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -54,6 +55,16 @@ class EvalResult:
     passed: bool
     reason: str
     reference_rows: list[list[Any]] = field(default_factory=list)
+
+
+def default_questions_file() -> Path | None:
+    """Encontra o questions.yaml: na pasta atual, no pacote instalado ou no repositório."""
+    candidates = [
+        Path("evals/questions.yaml"),
+        Path(str(resources.files("cineanalytics").joinpath("evals", "questions.yaml"))),
+        Path(__file__).resolve().parents[2] / "evals" / "questions.yaml",
+    ]
+    return next((c for c in candidates if c.is_file()), None)
 
 
 def load_questions(path: Path, ids: Sequence[str] | None = None) -> list[EvalQuestion]:
