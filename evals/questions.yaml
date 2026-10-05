@@ -1,0 +1,260 @@
+# Conjunto de avaliação: perguntas do enunciado + SQL de referência.
+# Os SQLs usam as tabelas brutas de propósito: assim o eval também valida as views.
+#
+# check:
+#   ordered -> compara as linhas na ordem (rankings)
+#   set     -> compara como conjunto, ignorando a ordem
+#   top1    -> compara apenas a 1ª linha (perguntas do tipo "qual o maior")
+# compare_cols: índices das colunas usadas na comparação (ignora colunas
+#   extras ou formatação diferente que o agente possa gerar).
+
+questions:
+
+  # ------------------------------------------------ Bilheteria e Finanças
+  - id: fin_01
+    category: bilheteria_financas
+    question: "Quais são os 10 filmes com maior receita em R$?"
+    check: ordered
+    compare_cols: [0]
+    sql: |
+      SELECT m.titulo, m.ano_lancamento, f.receita_brl
+      FROM fact_movies_performance f
+      JOIN dim_movies m ON m.sk_movie_id = f.sk_movie_id
+      WHERE f.receita_usd >= 1000
+      ORDER BY f.receita_brl DESC
+      LIMIT 10;
+
+  - id: fin_02
+    category: bilheteria_financas
+    question: "Qual o lucro médio por gênero, considerando apenas filmes com receita informada?"
+    check: set
+    compare_cols: [0, 1]
+    notes: "Exige também orçamento: sem ele, lucro_brl = receita e infla a média (decisão documentada no README)."
+    sql: |
+      SELECT g.nome_genero,
+             ROUND(AVG(f.lucro_brl), 2)       AS lucro_medio_brl,
+             COUNT(DISTINCT f.sk_movie_id)    AS qtd_filmes
+      FROM fact_movies_performance f
+      JOIN bridge_movie_genre bg ON bg.sk_movie_id = f.sk_movie_id
+      JOIN dim_genres g          ON g.sk_genre_id  = bg.sk_genre_id
+      WHERE f.receita_usd >= 1000 AND f.orcamento_usd >= 1000
+      GROUP BY g.sk_genre_id, g.nome_genero
+      ORDER BY lucro_medio_brl DESC;
+
+  - id: fin_03
+    category: bilheteria_financas
+    question: "Quais filmes têm a maior margem de lucro, entre os que possuem receita e orçamento informados?"
+    check: ordered
+    compare_cols: [0]
+    sql: |
+      SELECT m.titulo,
+             f.receita_brl,
+             f.orcamento_brl,
+             f.lucro_brl,
+             ROUND(f.lucro_brl * 100.0 / f.receita_brl, 2) AS margem_pct
+      FROM fact_movies_performance f
+      JOIN dim_movies m ON m.sk_movie_id = f.sk_movie_id
+      WHERE f.receita_usd >= 1000 AND f.orcamento_usd >= 1000
+      ORDER BY margem_pct DESC
+      LIMIT 10;
+
+  # ------------------------------------------ Popularidade e Engajamento
+  - id: pop_01
+    category: popularidade_engajamento
+    question: "Quais são os 5 filmes mais populares?"
+    check: ordered
+    compare_cols: [0]
+    sql: |
+      SELECT m.titulo, f.popularidade
+      FROM fact_movies_performance f
+      JOIN dim_movies m ON m.sk_movie_id = f.sk_movie_id
+      WHERE f.popularidade IS NOT NULL
+      ORDER BY f.popularidade DESC
+      LIMIT 5;
+
+  - id: pop_02
+    category: popularidade_engajamento
+    question: "Quais filmes têm a maior divergência entre a nota TMDB e a nota IMDb?"
+    check: ordered
+    compare_cols: [0]
+    sql: |
+      SELECT m.titulo,
+             f.nota_tmdb,
+             f.nota_imdb,
+             ROUND(ABS(f.nota_tmdb - f.nota_imdb), 2) AS divergencia
+      FROM fact_movies_performance f
+      JOIN dim_movies m ON m.sk_movie_id = f.sk_movie_id
+      WHERE f.nota_tmdb IS NOT NULL AND f.qtd_tmdb > 0
+        AND f.nota_imdb IS NOT NULL AND f.qtd_imdb > 0
+      ORDER BY divergencia DESC
+      LIMIT 10;
+
+  - id: pop_03
+    category: popularidade_engajamento
+    question: "Qual a nota média IMDb por ano de lançamento?"
+    check: set
+    compare_cols: [0, 1]
+    sql: |
+      SELECT m.ano_lancamento,
+             ROUND(AVG(f.nota_imdb), 2) AS nota_media_imdb,
+             COUNT(*)                   AS qtd_filmes
+      FROM fact_movies_performance f
+      JOIN dim_movies m ON m.sk_movie_id = f.sk_movie_id
+      WHERE f.nota_imdb IS NOT NULL AND f.qtd_imdb > 0
+        AND m.ano_lancamento IS NOT NULL
+      GROUP BY m.ano_lancamento
+      ORDER BY m.ano_lancamento;
+
+  # ------------------------------------------------- Elenco e Equipe
+  - id: cast_01
+    category: elenco_equipe
+    question: "Qual ator tem mais participações em filmes lançados nos últimos 5 anos?"
+    check: top1
+    compare_cols: [0]
+    notes: "Janela: filmes lançados de 2022 a 2026 (relativa ao maior ano entre os lançados)."
+    sql: |
+      WITH ref AS (
+        SELECT MAX(ano_lancamento) AS ano_max
+        FROM dim_movies WHERE status_filme = 'Lançado'
+      )
+      SELECT p.nome_pessoa,
+             COUNT(DISTINCT m.sk_movie_id) AS qtd_filmes
+      FROM dim_people p
+      JOIN bridge_movie_person bp ON bp.sk_person_id = p.sk_person_id
+      JOIN dim_movies m           ON m.sk_movie_id  = bp.sk_movie_id
+      CROSS JOIN ref
+      WHERE p.tipo_pessoa = 'Ator'
+        AND p.nome_pessoa GLOB '*[^0-9.]*'
+        AND p.nome_pessoa NOT GLOB '[12][0-9][0-9]0s'
+        AND m.status_filme = 'Lançado'
+        AND m.ano_lancamento > ref.ano_max - 5
+      GROUP BY p.sk_person_id, p.nome_pessoa
+      ORDER BY qtd_filmes DESC
+      LIMIT 10;
+
+  - id: cast_02
+    category: elenco_equipe
+    question: "Quais diretores têm a maior nota média, com no mínimo 5 filmes?"
+    check: ordered
+    compare_cols: [0]
+    sql: |
+      SELECT p.nome_pessoa,
+             ROUND(AVG(f.nota_imdb), 2)     AS nota_media_imdb,
+             COUNT(DISTINCT f.sk_movie_id)  AS qtd_filmes
+      FROM dim_people p
+      JOIN bridge_movie_person bp    ON bp.sk_person_id = p.sk_person_id
+      JOIN fact_movies_performance f ON f.sk_movie_id  = bp.sk_movie_id
+      WHERE p.tipo_pessoa = 'Diretor'
+        AND p.nome_pessoa GLOB '*[^0-9.]*'
+        AND p.nome_pessoa NOT GLOB '[12][0-9][0-9]0s'
+        AND f.nota_imdb IS NOT NULL AND f.qtd_imdb > 0
+      GROUP BY p.sk_person_id, p.nome_pessoa
+      HAVING COUNT(DISTINCT f.sk_movie_id) >= 5
+      ORDER BY nota_media_imdb DESC
+      LIMIT 10;
+
+  - id: cast_03
+    category: elenco_equipe
+    question: "Qual dupla ator–diretor mais trabalhou junta?"
+    check: top1
+    compare_cols: [0, 1]
+    notes: "Exclui a mesma pessoa atuando e dirigindo o próprio filme."
+    sql: |
+      SELECT a.nome_pessoa AS ator,
+             d.nome_pessoa AS diretor,
+             COUNT(DISTINCT ba.sk_movie_id) AS qtd_filmes
+      FROM bridge_movie_person ba
+      JOIN dim_people a          ON a.sk_person_id = ba.sk_person_id AND a.tipo_pessoa = 'Ator'
+      JOIN bridge_movie_person bd ON bd.sk_movie_id = ba.sk_movie_id
+      JOIN dim_people d          ON d.sk_person_id = bd.sk_person_id AND d.tipo_pessoa = 'Diretor'
+      WHERE a.nome_pessoa <> d.nome_pessoa
+        AND a.nome_pessoa GLOB '*[^0-9.]*' AND a.nome_pessoa NOT GLOB '[12][0-9][0-9]0s'
+        AND d.nome_pessoa GLOB '*[^0-9.]*' AND d.nome_pessoa NOT GLOB '[12][0-9][0-9]0s'
+      GROUP BY a.sk_person_id, a.nome_pessoa, d.sk_person_id, d.nome_pessoa
+      ORDER BY qtd_filmes DESC
+      LIMIT 10;
+
+  # ---------------------------------------------- Gêneros e Produtoras
+  - id: gen_01
+    category: generos_produtoras
+    question: "Qual a quantidade de filmes por gênero?"
+    check: set
+    compare_cols: [0, 1]
+    sql: |
+      SELECT g.nome_genero,
+             COUNT(DISTINCT bg.sk_movie_id) AS qtd_filmes
+      FROM dim_genres g
+      JOIN bridge_movie_genre bg ON bg.sk_genre_id = g.sk_genre_id
+      GROUP BY g.sk_genre_id, g.nome_genero
+      ORDER BY qtd_filmes DESC;
+
+  - id: gen_02
+    category: generos_produtoras
+    question: "Qual produtora tem o maior lucro total?"
+    check: top1
+    compare_cols: [0]
+    sql: |
+      SELECT c.nome_produtora,
+             ROUND(SUM(f.lucro_brl), 2)    AS lucro_total_brl,
+             COUNT(DISTINCT f.sk_movie_id) AS qtd_filmes
+      FROM dim_companies c
+      JOIN bridge_movie_company bc   ON bc.sk_company_id = c.sk_company_id
+      JOIN fact_movies_performance f ON f.sk_movie_id   = bc.sk_movie_id
+      WHERE f.receita_usd >= 1000 AND f.orcamento_usd >= 1000
+      GROUP BY c.sk_company_id, c.nome_produtora
+      ORDER BY lucro_total_brl DESC
+      LIMIT 10;
+
+  - id: gen_03
+    category: generos_produtoras
+    question: "Qual gênero tem a maior margem de lucro média?"
+    check: top1
+    compare_cols: [0]
+    sql: |
+      SELECT g.nome_genero,
+             ROUND(AVG(f.lucro_brl * 100.0 / f.receita_brl), 2) AS margem_media_pct,
+             COUNT(DISTINCT f.sk_movie_id)                      AS qtd_filmes
+      FROM fact_movies_performance f
+      JOIN bridge_movie_genre bg ON bg.sk_movie_id = f.sk_movie_id
+      JOIN dim_genres g          ON g.sk_genre_id  = bg.sk_genre_id
+      WHERE f.receita_usd >= 1000 AND f.orcamento_usd >= 1000
+      GROUP BY g.sk_genre_id, g.nome_genero
+      ORDER BY margem_media_pct DESC
+      LIMIT 10;
+
+  # ---------------------------------------------- Avaliações dos Usuários
+  - id: usr_01
+    category: avaliacoes_usuarios
+    question: "Quais são os filmes mais avaliados pelos usuários?"
+    check: ordered
+    compare_cols: [0]
+    notes: "dim_reviews é o agregado de movie_reviews (D11 confirmou: mesmos filmes e mesmo total)."
+    sql: |
+      SELECT m.titulo,
+             r.qtd_avaliacoes_usuarios,
+             r.nota_media_usuarios
+      FROM dim_reviews r
+      JOIN dim_movies m ON m.sk_movie_id = r.sk_movie_id
+      ORDER BY r.qtd_avaliacoes_usuarios DESC
+      LIMIT 10;
+
+  - id: usr_02
+    category: avaliacoes_usuarios
+    question: "Em quais filmes a nota média dos usuários mais diverge da nota IMDb?"
+    check: ordered
+    compare_cols: [0]
+    notes: "Ambas as notas em 0-10 (confirmado em D9)."
+    sql: |
+      SELECT m.titulo,
+             r.nota_media_usuarios,
+             f.nota_imdb,
+             r.qtd_avaliacoes_usuarios,
+             ROUND(ABS(r.nota_media_usuarios - f.nota_imdb), 2) AS divergencia
+      FROM dim_reviews r
+      JOIN fact_movies_performance f ON f.sk_movie_id = r.sk_movie_id
+      JOIN dim_movies m              ON m.sk_movie_id = r.sk_movie_id
+      WHERE r.nota_media_usuarios IS NOT NULL
+        AND r.qtd_avaliacoes_usuarios > 0
+        AND f.nota_imdb IS NOT NULL AND f.qtd_imdb > 0
+      ORDER BY divergencia DESC
+      LIMIT 10;
